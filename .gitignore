@@ -26,3 +26,4 @@ nbdist/
 .mvn/
 mvnw
 mvnw.cmd
+work/
