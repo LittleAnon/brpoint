@@ -88,6 +88,7 @@ public class StorageServiceImpl implements StorageService {
         // 释放
         accessTmpFile.close();
 
+
         boolean isOk = checkAndSetUploadProgress(param, tempDirPath);
         if (isOk) {
             boolean flag = renameFile(tmpFile, fileName);
@@ -112,11 +113,21 @@ public class StorageServiceImpl implements StorageService {
         //写入该分片数据
         long offset = CHUNK_SIZE * param.getChunk();
         byte[] fileData = param.getFile().getBytes();
-        MappedByteBuffer mappedByteBuffer = fileChannel.map(FileChannel.MapMode.READ_WRITE, offset, fileData.length);
+        MappedByteBuffer mappedByteBuffer = null;
+        try {
+            mappedByteBuffer = fileChannel.map(FileChannel.MapMode.READ_WRITE, offset, fileData.length);
+        }catch (IOException e){
+            fileChannel.close();
+            tempRaf.close();
+            System.err.println("发生‘请求的操作无法在使用用户映射区域打开的文件上执行’异常，重试此段");
+            uploadFileByMappedByteBuffer(param);
+            return;
+        }
         mappedByteBuffer.put(fileData);
         // 释放
         FileMD5Util.freedMappedByteBuffer(mappedByteBuffer);
         fileChannel.close();
+        tempRaf.close();
 
         boolean isOk = checkAndSetUploadProgress(param, uploadDirPath);
         if (isOk) {
@@ -184,7 +195,17 @@ public class StorageServiceImpl implements StorageService {
         String p = toBeRenamed.getParent();
         File newFile = new File(p + File.separatorChar + toFileNewName);
         //修改文件名
-        return toBeRenamed.renameTo(newFile);
+        try {
+            FileUtils.moveFile(toBeRenamed,newFile);
+
+        } catch (IOException e) {
+            e.printStackTrace();
+            return false;
+        }
+        return true;
     }
+
+
+
 
 }
