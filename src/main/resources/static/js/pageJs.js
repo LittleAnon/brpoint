@@ -86,7 +86,7 @@ var uploader = WebUploader.create({
     swf: 'js/Uploader.swf',
     chunked: true,
     chunkSize: chunkSize, // 字节 1M分块
-    threads: 3,
+    threads: 1,
     server: '/index/fileUpload',
     auto: false,
 

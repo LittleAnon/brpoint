@@ -88,7 +88,7 @@ public class IndexController {
                 // 方法1
                 //storageService.uploadFileRandomAccessFile(param);
                 // 方法2 这个更快点
-                storageService.uploadFileByMappedByteBuffer(param);
+                storageService.uploadFileByMappedByteBufferToHDFS(param);
             } catch (IOException e) {
                 e.printStackTrace();
                 logger.error("文件上传失败。{}", param.toString());

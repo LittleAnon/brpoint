@@ -1,6 +1,10 @@
 package win.pangniu.learn.service.impl;
 
 import org.apache.commons.io.FileUtils;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FSDataOutputStream;
+import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.io.IOUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -12,10 +16,10 @@ import win.pangniu.learn.param.MultipartFileParam;
 import win.pangniu.learn.service.StorageService;
 import win.pangniu.learn.utils.Constants;
 import win.pangniu.learn.utils.FileMD5Util;
+import win.pangniu.learn.utils.HDFSUtils;
 
-import java.io.File;
-import java.io.IOException;
-import java.io.RandomAccessFile;
+import java.io.*;
+import java.net.URI;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.FileAlreadyExistsException;
@@ -42,6 +46,8 @@ public class StorageServiceImpl implements StorageService {
 
     @Value("${breakpoint.upload.dir}")
     private String finalDirPath;
+
+    private String hdfsPath = "hdfs://192.168.191.112:9000/breakPointFile/";
 
     @Autowired
     public StorageServiceImpl(@Value("${breakpoint.upload.dir}") String location) {
@@ -112,6 +118,7 @@ public class StorageServiceImpl implements StorageService {
 
         //写入该分片数据
         long offset = CHUNK_SIZE * param.getChunk();
+        logger.info("param chunk:{},offset:{}",param.getChunk(),offset);
         byte[] fileData = param.getFile().getBytes();
         MappedByteBuffer mappedByteBuffer = null;
         try {
@@ -123,7 +130,11 @@ public class StorageServiceImpl implements StorageService {
             uploadFileByMappedByteBuffer(param);
             return;
         }
+
         mappedByteBuffer.put(fileData);
+
+
+
         // 释放
         FileMD5Util.freedMappedByteBuffer(mappedByteBuffer);
         fileChannel.close();
@@ -133,6 +144,56 @@ public class StorageServiceImpl implements StorageService {
         if (isOk) {
             boolean flag = renameFile(tmpFile, fileName);
             System.out.println("upload complete !!" + flag + " name=" + fileName);
+
+        }
+    }
+
+
+
+
+    @Override
+    public void uploadFileByMappedByteBufferToHDFS(MultipartFileParam param) throws IOException {
+        String fileName = param.getName();
+        String uploadDirPath = finalDirPath + param.getMd5();
+        //创建临时目录存放记录文件
+        File tmpDir = new File(uploadDirPath);
+        if (!tmpDir.exists()) {
+            tmpDir.mkdirs();
+        }
+
+        //写入该分片数据
+        byte[] fileData = param.getFile().getBytes();
+
+        String hdfsFileLoc= hdfsPath + fileName;
+        FileSystem fs = null;
+        Configuration conf = new Configuration();
+        conf.setBoolean("dfs.support.append", true);
+        org.apache.hadoop.fs.Path path = new org.apache.hadoop.fs.Path(hdfsFileLoc);
+        try {
+            fs = path.getFileSystem(conf);
+            boolean exists = fs.exists(path);
+            if (!exists) {
+                fs.create(new org.apache.hadoop.fs.Path(hdfsFileLoc)).close();
+            }
+            ByteArrayInputStream byteArrayInputStream = new ByteArrayInputStream(fileData);
+
+            fs = FileSystem.get(URI.create(hdfsFileLoc), conf);
+            OutputStream out = fs.append(new org.apache.hadoop.fs.Path(hdfsFileLoc));
+            IOUtils.copyBytes(byteArrayInputStream, out, 4096, true);
+            fs.close();
+
+
+        }catch (Exception e){
+            e.printStackTrace();
+        }
+
+        // 释放
+        boolean isOk = checkAndSetUploadProgressHDFS(param, uploadDirPath);
+        if (isOk) {
+            //boolean flag = renameFile(tmpFile, fileName);
+            //System.out.println("upload complete !!" + flag + " name=" + fileName);
+            System.out.println("坎坎坷坷扩扩扩扩扩扩扩扩扩扩扩扩扩扩扩扩扩扩扩");
+
         }
     }
 
@@ -145,6 +206,51 @@ public class StorageServiceImpl implements StorageService {
      * @throws IOException
      */
     private boolean checkAndSetUploadProgress(MultipartFileParam param, String uploadDirPath) throws IOException {
+        String fileName = param.getName();
+        File confFile = new File(uploadDirPath, fileName + ".conf");
+        RandomAccessFile accessConfFile = new RandomAccessFile(confFile, "rw");
+        //把该分段标记为 true 表示完成
+        System.out.println("set part " + param.getChunk() + " complete");
+        accessConfFile.setLength(param.getChunks());
+        accessConfFile.seek(param.getChunk());
+        accessConfFile.write(Byte.MAX_VALUE);
+
+        //completeList 检查是否全部完成,如果数组里是否全部都是(全部分片都成功上传)
+        byte[] completeList = FileUtils.readFileToByteArray(confFile);
+        byte isComplete = Byte.MAX_VALUE;
+        for (int i = 0; i < completeList.length && isComplete == Byte.MAX_VALUE; i++) {
+            //与运算, 如果有部分没有完成则 isComplete 不是 Byte.MAX_VALUE
+            isComplete = (byte) (isComplete & completeList[i]);
+            System.out.println("check part " + i + " complete?:" + completeList[i]);
+        }
+
+        accessConfFile.close();
+        if (isComplete == Byte.MAX_VALUE) {
+            stringRedisTemplate.opsForHash().put(Constants.FILE_UPLOAD_STATUS, param.getMd5(), "true");
+            stringRedisTemplate.opsForValue().set(Constants.FILE_MD5_KEY + param.getMd5(), uploadDirPath + "/" + fileName);
+            return true;
+        } else {
+            if (!stringRedisTemplate.opsForHash().hasKey(Constants.FILE_UPLOAD_STATUS, param.getMd5())) {
+                stringRedisTemplate.opsForHash().put(Constants.FILE_UPLOAD_STATUS, param.getMd5(), "false");
+            }
+            if (stringRedisTemplate.hasKey(Constants.FILE_MD5_KEY + param.getMd5())) {
+                stringRedisTemplate.opsForValue().set(Constants.FILE_MD5_KEY + param.getMd5(), uploadDirPath + "/" + fileName + ".conf");
+            }
+            return false;
+        }
+    }
+
+
+
+    /**
+     * 检查并修改文件上传进度
+     *
+     * @param param
+     * @param uploadDirPath
+     * @return
+     * @throws IOException
+     */
+    private boolean checkAndSetUploadProgressHDFS(MultipartFileParam param, String uploadDirPath) throws IOException {
         String fileName = param.getName();
         File confFile = new File(uploadDirPath, fileName + ".conf");
         RandomAccessFile accessConfFile = new RandomAccessFile(confFile, "rw");
@@ -197,6 +303,7 @@ public class StorageServiceImpl implements StorageService {
         //修改文件名
         try {
             FileUtils.moveFile(toBeRenamed,newFile);
+            //HDFSUtils.putToHDFS(newFile.getAbsolutePath(),"hdfs://192.168.191.112:9000/breakPoint/"+newFile.getName());
 
         } catch (IOException e) {
             e.printStackTrace();

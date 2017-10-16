@@ -37,4 +37,13 @@ public interface StorageService {
      */
     void uploadFileByMappedByteBuffer(MultipartFileParam param) throws IOException;
 
+    /**
+     * 上传文件方法2
+     * 处理文件分块，基于MappedByteBuffer来实现文件的保存
+     *
+     * @param param
+     * @throws IOException
+     */
+    void uploadFileByMappedByteBufferToHDFS(MultipartFileParam param) throws IOException;
+
 }
