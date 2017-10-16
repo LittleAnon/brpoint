@@ -28,7 +28,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 /**
- * Created by 超文 on 2017/5/2.
  */
 @Service
 public class StorageServiceImpl implements StorageService {

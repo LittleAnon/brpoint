@@ -2,8 +2,6 @@ package win.pangniu.learn.vo;
 
 /**
  * 统一返回结果pojo
- * Created by wenwen on 2017/4/23.
- * version 1.0
  */
 public class ResultVo<T> {
 

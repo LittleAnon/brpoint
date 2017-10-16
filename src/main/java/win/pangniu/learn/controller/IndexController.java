@@ -25,7 +25,6 @@ import java.util.List;
 
 /**
  * 默认控制层
- * Created by wenwen on 2017/4/11.
  * version 1.0
  */
 @Controller

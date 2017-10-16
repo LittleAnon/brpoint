@@ -5,7 +5,6 @@ import java.util.Map;
 
 /**
  * 常量表
- * Created by 超文 on 2017/05/02.
  * version 1.0
  */
 public interface Constants {
